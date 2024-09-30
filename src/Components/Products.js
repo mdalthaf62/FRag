@@ -38,7 +38,6 @@ const Products = () => {
   const [categories, setCategories] = useState([]);
   const [brands, setBrands] = useState([]);
   const [sizes, setSizes] = useState([]);
-  const [lastVisibleDocs, setLastVisibleDocs] = useState({}); // Store last visible documents for each page
 
   const [totalProducts, setTotalProducts] = useState(0); // Total products count
   const [currentPage, setCurrentPage] = useState(1); // Track the current page
@@ -73,7 +72,7 @@ const Products = () => {
   const pageSize = 10; // Number of products to fetch per page
 
   useEffect(() => {
-    fetchData(false, selectedCategories, selectedBrand, selectedSizes, currentPage);
+    fetchData(false, selectedCategories, selectedBrand, selectedSizes);
     countTotalProducts(selectedCategories, selectedBrand, selectedSizes);
   }, [currentPage, selectedCategories, selectedBrand, selectedSizes]);
   // Function to count total products based on filters
@@ -103,71 +102,63 @@ const Products = () => {
     }
   };
 
-// Function to fetch paginated products
-const fetchData = async (
-  categories = selectedCategories,
-  brands = selectedBrand,
-  sizes = selectedSizes,
-  currentPage = 1 // Pass currentPage to control pagination
-) => {
-  try {
-    setLoading(true);
-    let q = query(collection(db, "products"));
+  // Function to fetch paginated products
+  const fetchData = async (
+    loadMore = false,
+    categories = selectedCategories,
+    brands = selectedBrand,
+    sizes = selectedSizes
+  ) => {
+    try {
+      setLoading(true);
+      let q = query(collection(db, "products"), limit(pageSize));
 
-    // Apply filters for categories, brands, and sizes
-    if (categories.length > 0 && !categories.includes("All")) {
-      q = query(q, where("category", "in", categories));
-    }
-    if (brands.length > 0 && !brands.includes("All")) {
-      q = query(q, where("brand", "in", brands));
-    }
-    if (sizes.length > 0 && !sizes.includes("All")) {
-      q = query(q, where("size", "in", sizes));
-    }
-
-    // Determine whether we need to use `startAfter` for pagination
-    if (currentPage > 1) {
-      const lastVisibleDoc = lastVisibleDocs[currentPage - 1]; // Get the last visible document for the previous page
-      if (lastVisibleDoc) {
-        q = query(q, startAfter(lastVisibleDoc));
+      if (categories.length > 0 && !categories.includes("All")) {
+        q = query(q, where("category", "in", categories));
       }
-    }
+      if (brands.length > 0 && !brands.includes("All")) {
+        q = query(q, where("brand", "in", brands));
+      }
+      if (sizes.length > 0 && !sizes.includes("All")) {
+        q = query(q, where("size", "in", sizes));
+      }
 
-    // Fetch the products for the current page
-    const querySnapshot = await getDocs(query(q, limit(pageSize)));
+      if (loadMore && lastVisible) {
+        q = query(q, startAfter(lastVisible), limit(pageSize));
+      }
 
-    if (querySnapshot.empty) {
-      setTableData([]); // Handle case where no data is found
-    } else {
+      const querySnapshot = await getDocs(q);
+      const lastDoc = querySnapshot.docs[querySnapshot.docs.length - 1];
       const products = querySnapshot.docs.map((doc) => ({
         ...doc.data(),
         id: doc.id,
       }));
 
-      setTableData(products); // Set the table data for the current page
+      if (loadMore) {
+        setTableData((prevData) => [...prevData, ...products]);
+      } else {
+        setTableData(products);
+      }
 
-      // Store the last visible document for the current page
-      setLastVisibleDocs((prev) => ({
-        ...prev,
-        [currentPage]: querySnapshot.docs[querySnapshot.docs.length - 1],
-      }));
+      setLastVisible(lastDoc);
+      setError(null);
+    } catch (err) {
+      setError("Error fetching data");
+    } finally {
+      setLoading(false);
     }
-
-    setError(null);
-  } catch (err) {
-    setError("Error fetching data");
-  } finally {
-    setLoading(false);
-  }
-};
-
+  };
 
   const handlePageChange = (page) => {
     console.log(page);
+
     setCurrentPage(page);
+    setLastVisible(null); // Reset pagination for new page
   };
 
-
+  const loadMoreProducts = () => {
+    fetchData(true); // Load more products when "Load More" is clicked
+  };
 
   const handleCategory = (item) => {
     let updatedCategories = [...selectedCategories];
@@ -177,6 +168,7 @@ const fetchData = async (
       updatedCategories.push(item);
     }
     setSelectedCategories(updatedCategories);
+    fetchData();
   };
 
   const handleBrandChange = (item) => {
@@ -187,6 +179,7 @@ const fetchData = async (
       updateBrand.push(item);
     }
     setSelectedBrand(updateBrand);
+    fetchData();
   };
 
   const handleSize = (item) => {
@@ -197,6 +190,7 @@ const fetchData = async (
       updateSize.push(item);
     }
     setSelectedSizes(updateSize);
+    fetchData();
   };
 
   const handleSearch = (e) => {
